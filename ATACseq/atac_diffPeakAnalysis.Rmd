@@ -1,0 +1,140 @@
+---
+title: "atac_tcell_bcell"
+author: "Shloka Shukla"
+---
+
+```{r}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("DESeq2")
+```
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = "/Users/shloka/Desktop/atac_tcell_bcell_DE")
+```
+
+```{r}
+countData_bcells <- read.table("counts_matrix_bcells.txt", header = TRUE, sep = "\t")
+countData_tcells <- read.table("counts_matrix_tcells.txt", header = TRUE, sep = "\t")
+```
+
+```{r}
+# Set column names
+colnames(countData_bcells) <- c("Chromosome", "Start", "End", "SRR7650729", "SRR7650771", "SRR7650812", "SRR7650730", "SRR7650772", "SRR7650813")
+
+colnames(countData_tcells) <- c("Chromosome", "Start", "End", "SRR7650742", "SRR7650784", "SRR7650824", "SRR7650743", "SRR7650785", "SRR7650825")
+
+```
+
+
+```{r}
+#Skipping columns 1 to 3, as they are: Chr, Start, End
+countsMatrix_bcells <- as.matrix(countData_bcells[, 4:9])
+
+countsMatrix_tcells <- as.matrix(countData_tcells[, 4:9])
+
+```
+
+```{r}
+#While performing bedtool, 1st 3 cols were made sure to be controls, and followng 3 cols treated
+conditions <- factor(c("control", "control", "control", "treated", "treated", "treated"))
+colData_bcells <- data.frame(condition = conditions)
+rownames(colData_bcells) <- colnames(countsMatrix_bcells)
+
+colData_tcells <- data.frame(condition = conditions)
+rownames(colData_tcells) <- colnames(countsMatrix_tcells)
+```
+
+```{r}
+library(DESeq2)
+
+#b_cells
+dds_bcells <- DESeqDataSetFromMatrix(countData = countsMatrix_bcells, 
+                              colData = colData_bcells, 
+                              design = ~ condition)
+dds_bcells <- DESeq(dds_bcells)
+res_bcells <- results(dds_bcells)
+write.csv(as.data.frame(res_bcells), file="atac_diffAnalys_bcells.csv")
+resOrdered_bcells <- res_bcells[order(res_bcells$padj),]
+head(resOrdered_bcells)
+
+#t_cells
+dds_tcells <- DESeqDataSetFromMatrix(countData = countsMatrix_tcells, 
+                                colData = colData_tcells, 
+                                design = ~ condition)
+dds_tcells <- DESeq(dds_tcells)
+res_tcells <- results(dds_tcells)
+write.csv(as.data.frame(res_tcells), file="atac_diffAnalys_tcells.csv")
+
+resOrdered_tcells <- res_tcells[order(res_tcells$padj),]
+head(resOrdered_tcells)
+
+```
+
+```{r}
+#Volcano plot
+if (!requireNamespace("ggplot2", quietly = TRUE))
+    install.packages("ggplot2")
+library(ggplot2)
+#b_cells
+volcanoData_bcells <- as.data.frame(res_bcells)
+volcanoData_bcells$log2FoldChange <- res_bcells$log2FoldChange
+volcanoData_bcells$pvalue <- res_bcells$pvalue
+volcanoData_bcells <- na.omit(volcanoData_bcells)
+
+#t_cells
+volcanoData_tcells <- as.data.frame(res_tcells)
+volcanoData_tcells$log2FoldChange <- res_tcells$log2FoldChange
+volcanoData_tcells$pvalue <- res_tcells$pvalue
+volcanoData_tcells <- na.omit(volcanoData_tcells)
+
+```
+
+
+```{r}
+#  to ensure common x-axis and y-axis limits
+x_min <- min(volcanoData_bcells$log2FoldChange, volcanoData_tcells$log2FoldChange)
+x_max <- max(volcanoData_bcells$log2FoldChange, volcanoData_tcells$log2FoldChange)
+y_min <- min(-log10(volcanoData_bcells$pvalue), -log10(volcanoData_tcells$pvalue))
+y_max <- max(-log10(volcanoData_bcells$pvalue), -log10(volcanoData_tcells$pvalue))
+
+# B cells
+ggplot(volcanoData_bcells, aes(x = log2FoldChange, y = -log10(pvalue))) +
+  geom_point(aes(color = pvalue < 0.05), alpha = 0.5) +
+  scale_color_manual(values = c("grey", "red")) +
+  labs(x = "Log2 Fold Change", y = "-Log10 p-value", title = "Volcano Plot--B Cells") +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  xlim(x_min, x_max) +
+  ylim(y_min, y_max)  
+
+# T cells
+ggplot(volcanoData_tcells, aes(x = log2FoldChange, y = -log10(pvalue))) +
+  geom_point(aes(color = pvalue < 0.05), alpha = 0.5) +
+  scale_color_manual(values = c("grey", "red")) +
+  labs(x = "Log2 Fold Change", y = "-Log10 p-value", title = "Volcano Plot--T Cells") +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  xlim(x_min, x_max) +
+  ylim(y_min, y_max)  
+```
+
+```{r}
+count_regulation <- function(res, padj_threshold = 0.05, log2FC_threshold = 0) {
+  # Unregulated genes
+  unregulated <- sum(res$padj > padj_threshold & abs(res$log2FoldChange) <= log2FC_threshold)
+  
+  # Downregulated genes
+  downregulated <- sum(res$padj <= padj_threshold & res$log2FoldChange < 0)
+  
+  return(list(Unregulated = unregulated, Downregulated = downregulated))
+}
+
+# Count unregulated and downregulated genes for B cells
+regulation_bcells <- count_regulation(res_bcells)
+regulation_bcells
+
+# Count unregulated and downregulated genes for T cells
+regulation_tcells <- count_regulation(res_tcells)
+regulation_tcells
+```
+

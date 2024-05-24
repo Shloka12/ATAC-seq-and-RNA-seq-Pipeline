@@ -1,0 +1,296 @@
+---
+title: "DEG analysis for RNAseq data"
+output: html_notebook
+---
+
+
+```{r}
+knitr::opts_knit$set(root.dir = "/ix/djishnu/Shloka/rnaseq_alldonors/kallisto")
+
+```
+
+
+```{r}
+library(dplyr) 
+library(ggplot2)
+library(DESeq2) 
+library(edgeR) 
+library(tximport) 
+library(readr) 
+library(rhdf5)  
+```
+
+```{r}
+library(Biostrings)
+library(rtracklayer)
+library(GenomicFeatures)
+
+fasta_file <- "/ix/djishnu/Shloka/rnaseq_alldonors/kallisto/Homo_sapiens.GRCh38.cdna.all.fa"
+
+sequences <- readDNAStringSet(fasta_file)
+
+desc <- names(sequences)
+transcript_ids <- sapply(strsplit(desc, " "), `[`, 1)
+gene_ids <- sapply(strsplit(desc, "gene:"), `[`, 2)
+gene_ids <- sapply(strsplit(gene_ids, " "), `[`, 1)
+
+tx2gene_new <- data.frame(
+  transcript = gsub(">", "", transcript_ids),
+  gene = gene_ids,
+  stringsAsFactors = FALSE
+)
+
+write.csv(tx2gene_new, "tx2gene_new.csv", row.names = FALSE, quote = FALSE)
+
+```
+```{r}
+tx2gene_new <- read.delim("/ix/djishnu/Shloka/rnaseq_alldonors/kallisto/tx2gene_new.csv",sep=",",header=TRUE,stringsAsFactors = FALSE)
+```
+
+
+```{r}
+head(tx2gene_new)
+```
+
+```{r}
+tx2gene_new$transcript <- sub("\\..*$", "", tx2gene_new$transcript)
+tx2gene_new$gene <- sub("\\..*$", "", tx2gene_new$gene)
+
+head(tx2gene_new)
+```
+
+
+
+
+```{r}
+dir <- "/ix/djishnu/Shloka/rnaseq_alldonors/kallisto_out"
+
+
+```
+
+```{r}
+head(tx2gene_new)
+```
+
+```{r}
+samples_B <- c("SRR7647654", "SRR7647655", "SRR7647696", "SRR7647697", "SRR7647731", "SRR7647732")
+samples_cd8 <- c("SRR11007067", "SRR11007068", "SRR11007102", "SRR11007103", "SRR11007133", "SRR11007134")
+
+
+```
+
+```{r}
+files_B <- setNames(file.path(dir, samples_B, "abundance.tsv"), samples_B)
+files_cd8 <- setNames(file.path(dir, samples_cd8, "abundance.tsv"), samples_cd8)
+```
+
+
+```{r}
+txi_B <- tximport(files_B, type = "kallisto", tx2gene = tx2gene_new, ignoreTxVersion = TRUE,countsFromAbundance = "no")
+
+
+txi_cd8 <- tximport(files_cd8, type = "kallisto", tx2gene = tx2gene_new, ignoreTxVersion = TRUE,countsFromAbundance = "no")
+```
+
+
+
+```{r}
+
+
+sampleTable_B <- data.frame(condition = factor(c("Control", "Treatment", "Control", "Treatment", "Control", "Treatment")), row.names = colnames(txi_B$counts))
+sampleTable_cd8 <- data.frame(condition = factor(c("Control", "Treatment", "Control", "Treatment", "Control", "Treatment")), row.names = colnames(txi_cd8$counts))
+
+```
+
+
+```{r}
+dds_B <- DESeqDataSetFromTximport(txi_B, colData = sampleTable_B, design = ~ condition)
+dds_cd8 <- DESeqDataSetFromTximport(txi_cd8, colData = sampleTable_cd8, design = ~ condition)
+smallestGroupSize <- 3
+keep_cd_B <- rowSums(counts(dds_B) >= 10) >= smallestGroupSize
+dds_B <- dds_B[keep_cd_B,]
+
+dds_B <- DESeq(dds_B)
+
+smallestGroupSize <- 3
+keep_cd8 <- rowSums(counts(dds_cd8) >= 10) >= smallestGroupSize
+dds_cd8<-dds_cd8[keep_cd8,]
+dds_cd8<-DESeq(dds_cd8)
+res_B <- results(dds_B)
+
+res_B <- na.omit(res_B)  
+res_cd8 <- results(dds_cd8)
+res_cd8 <- na.omit(res_cd8)
+
+```
+
+```{r}
+str(res_B)
+```
+```{r}
+summary(res_B)
+```
+```{r}
+summary(res_cd8)
+```
+
+```{r}
+write.csv(as.data.frame(res_B), "DEG_results_B_cells_new.csv")
+write.csv(as.data.frame(res_cd8), "DEG_results_CD8_cells_new.csv")
+
+```
+```{r}
+install.packages("ggmatplot")
+
+```
+
+```{r}
+
+BiocManager::install("biomaRt")
+
+
+```
+```{r}
+library(GenomicFeatures) 
+
+```
+
+```{r}
+deg_results_b <- read.csv("DEG_results_B_cells_new.csv")
+
+```
+
+```{r}
+gene_ids_b <- deg_results_b[, 1]
+
+```
+
+```{r}
+BiocManager::install(c("biomaRt", "GenomicFeatures"))
+
+```
+```{r}
+install.packages("AnnotationDbi")
+install.packages("org.Hs.eg.db")
+library(AnnotationDbi)
+library(org.Hs.eg.db)
+```
+
+
+```{r}
+deg_results_b <- read.csv("DEG_results_B_cells_new.csv")
+
+gene_ids_b
+```
+
+
+```{r}
+install.packages("AnnotationDbi")
+install.packages("org.Hs.eg.db")
+install.packages("ensembldb")
+library(AnnotationDbi)
+library(org.Hs.eg.db)
+library(ensembldb)
+```
+
+
+
+```{r}
+keytypes(org.Hs.eg.db)
+columns(org.Hs.eg.db)
+```
+
+```{r}
+gene_symbols_b <- mapIds(org.Hs.eg.db, keys = gene_ids_b, column = "SYMBOL", keytype = "ENSEMBL",multiVals = "first")
+
+
+```
+```{r}
+deg_results_mapped_b <- cbind(gene_id = gene_ids_b, gene_symbol = gene_symbols_b, deg_results_b)
+
+```
+
+```{r}
+write.csv(deg_results_mapped_b[, -3], "DEG_results_B_cells_mapped.csv", row.names = FALSE)
+
+
+```
+
+```{r}
+deg_results_t <- read.csv("DEG_results_CD8_cells_new.csv")
+
+gene_ids_t <- deg_results_t[, 1]
+
+
+```
+
+```{r}
+gene_symbols_t <- mapIds(org.Hs.eg.db, keys = gene_ids_t, column = "SYMBOL", keytype = "ENSEMBL",multiVals = "first")
+```
+```{r}
+deg_results_mapped_t <- cbind(gene_id = gene_ids_t, gene_symbol = gene_symbols_t, deg_results_t)
+
+```
+
+
+```{r}
+write.csv(deg_results_mapped_t[, -3], "DEG_results_CD8_cells_mapped.csv", row.names = FALSE)
+```
+
+
+
+
+```{r}
+library(ggmatplot)
+```
+```{r}
+install.packages("ggpubr")
+```
+```{r}
+library(ggpubr)
+```
+
+```{r}
+
+```
+
+
+
+
+
+
+```{r}
+generate_volcano <- function(results_df, title) {
+  results_df$significant <- results_df$padj < 0.05 & abs(results_df$log2FoldChange) > 1
+  
+  ggplot(results_df, aes(x=log2FoldChange, y=-log10(padj), color=significant)) +
+    geom_point(alpha=0.5) +
+    scale_color_manual(values=c("grey", "red")) +
+    labs(title = title, x = "Log2 Fold Change", y = "-Log10 Adjusted P-value") +
+    theme_minimal() +
+    theme(legend.position = "none")
+}
+
+volcano_plot_B <- generate_volcano(res_B, "Volcano Plot for B Cells")
+volcano_plot_CD8 <- generate_volcano(res_cd8, "Volcano Plot for CD8 Cells")
+
+print(volcano_plot_B)
+print(volcano_plot_CD8)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
